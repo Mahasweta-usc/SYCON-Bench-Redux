@@ -207,9 +207,9 @@ def process_prompt_file(csv_file: str, arguments: List[str], api_key: str, outpu
     
     # Use AzureOpenAI for API calls
     client = AzureOpenAI(
-        api_key = api_key,
-        api_version = "2023-05-15",
-        azure_endpoint = "https://gpt-35-1106.openai.azure.com/"
+        api_version="2024-12-01-preview",
+        azure_endpoint="https://llm-judges-resource.cognitiveservices.azure.com/",
+        api_key=api_key,
     )
     
     # Process each row

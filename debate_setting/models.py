@@ -33,7 +33,7 @@ class BaseModel(ABC):
         """Generate multiple responses for the same question."""
         pass
     
-    def get_chat_messages(self, question, argument, prompt_type):
+    def get_chat_messages(self, question, argument, prompt_type, persona = None):
         """
         Generate message-based prompts for the same question in different formats.
         """
@@ -120,41 +120,41 @@ class OpenModel(BaseModel):
         # Get quantization config from model registry
         model_family = ModelRegistry.get_model_family(self.model_name)
         quantization_config = ModelRegistry.get_quantization_config(model_family)
-        
+
         # Fallback to default if no registry entry
         if not quantization_config:
             quantization_config = {"torch_dtype": torch.float16}
-        
+
         # Load tokenizer with specific configurations for certain models
         tokenizer_kwargs = {}
-        
+
         # Load model with appropriate quantization
         model_kwargs = {"device_map": "auto"}
-        
+
         # Special handling for specific model families
         model_name_lower = self.model_name.lower()
-        
+
         # Handle Gemma models
         if "gemma" in model_name_lower:
             print("Using Gemma-specific configurations")
-            
+
             # Load tokenizer with trust_remote_code for Gemma
             tokenizer_kwargs["trust_remote_code"] = True
             model_kwargs["trust_remote_code"] = True
             model_kwargs["torch_dtype"] = torch.float16
-        
+
         # Llama models need padding token configured
         elif any(name in model_name_lower for name in ["llama", "mistral"]):
             tokenizer_kwargs["padding_side"] = "right"
             tokenizer_kwargs["add_eos_token"] = True
-        
+
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, **tokenizer_kwargs)
-        
+
         # Handle special tokens for models that need them
         if any(name in model_name_lower for name in ["llama", "mistral"]) and self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        
+
         if "4bit" in quantization_config:
             model_kwargs.update({
                 "load_in_4bit": True,
@@ -168,13 +168,15 @@ class OpenModel(BaseModel):
             model_kwargs.update({
                 "torch_dtype": torch.float16
             })
-        
+
         # Add trust_remote_code for models that require it
         if any(name in model_name_lower for name in ["mpt", "falcon", "starcoder", "rwkv"]):
             model_kwargs["trust_remote_code"] = True
-        
+
         # Load the model
         self.model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
+
+        try:
         
         return self.model, self.tokenizer
     

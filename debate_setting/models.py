@@ -8,12 +8,17 @@ import time
 import torch
 import logging
 import pandas as pd
+import requests
+from urllib.parse import urljoin
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 from abc import ABC, abstractmethod
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-from .model_registry import ModelRegistry
-
+from model_registry import ModelRegistry
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
 # Import OpenAI API wrapper from litellm for closed models
 try:
     from litellm import completion
@@ -100,22 +105,21 @@ class BaseModel(ABC):
             batch_df.index.name = "Question"
             batch_df.to_csv(output_file)
 
-
 class OpenModel(BaseModel):
     """Class for open-source models that can be loaded locally."""
-    
+
     def __init__(self, model_name):
         """Initialize with model name."""
         self.model_name = model_name
         self.model = None
         self.tokenizer = None
-    
+
     def setup(self):
         """
         Load the model and tokenizer with appropriate quantization to fit in GPU memory
         """
         print(f"Loading model: {self.model_name}")
-        
+
         # Set up quantization parameters based on model size
         # Get quantization config from model registry
         model_family = ModelRegistry.get_model_family(self.model_name)
@@ -176,10 +180,8 @@ class OpenModel(BaseModel):
         # Load the model
         self.model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
 
-        try:
-        
         return self.model, self.tokenizer
-    
+
     def format_messages_fallback(self, messages):
         """
         Fallback function for tokenizers that don't support apply_chat_template
@@ -194,7 +196,7 @@ class OpenModel(BaseModel):
             elif message["role"] == "assistant":
                 formatted += f"<assistant>\n{message['content']}\n</assistant>\n\n"
         return formatted
-    
+
     def apply_template(self, messages, tokenizer, model_name):
         """
         Apply the chat template with fallback for unsupported tokenizers
@@ -205,7 +207,7 @@ class OpenModel(BaseModel):
                 # Create a copy to avoid modifying the original
                 transformed_messages = []
                 system_content = ""
-                
+
                 # First pass - collect system message and transform assistant to model
                 for msg in messages:
                     if msg["role"] == "system":
@@ -214,7 +216,7 @@ class OpenModel(BaseModel):
                         transformed_messages.append({"role": "model", "content": msg["content"]})
                     else:
                         transformed_messages.append(msg.copy())
-                
+
                 # Second pass - merge system content into first user message if needed
                 if system_content:
                     for i, msg in enumerate(transformed_messages):
@@ -222,19 +224,19 @@ class OpenModel(BaseModel):
                             # Combine system content with user content
                             transformed_messages[i]["content"] = f"{system_content}\n\n{msg['content']}"
                             break
-                    
+
                     # If no user message was found, add system content as user message
                     if not any(msg["role"] == "user" for msg in transformed_messages):
                         transformed_messages.insert(0, {"role": "user", "content": system_content})
-                
+
                 return tokenizer.apply_chat_template(transformed_messages, tokenize=False, add_generation_prompt=True)
-            
+
             return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         except (AttributeError, NotImplementedError) as e:
             print(f"Warning: Could not apply chat template: {e}")
             # Fallback to a model-specific template
             return self.format_messages_fallback(messages)
-    
+
     def generate_responses(self, messages, num_responses=5):
         """
         Generate multiple responses for the same question using message-based prompts
@@ -242,7 +244,7 @@ class OpenModel(BaseModel):
         """
         responses = []
         current_messages = messages.copy()  # Start with the initial messages
-        
+
         # Set up generation parameters
         gen_kwargs = {
             "max_new_tokens": 512,
@@ -250,12 +252,12 @@ class OpenModel(BaseModel):
             "top_p": 0.9,
             "do_sample": False
         }
-        
+
         # Adjust parameters based on model type
         model_name_lower = self.model_name.lower()
         if any(name in model_name_lower for name in ["llama-2", "llama-3", "mistral-instruct"]):
             gen_kwargs["eos_token_id"] = self.tokenizer.eos_token_id
-        
+
         # Generate multiple responses
         for i in range(num_responses):
             # Create pipeline for generation
@@ -265,26 +267,27 @@ class OpenModel(BaseModel):
                 tokenizer=self.tokenizer,
                 **gen_kwargs
             )
-            
+
             # Apply the chat template to get a formatted prompt string
             prompt = self.apply_template(current_messages, self.tokenizer, self.model_name)
-            
+
             print(f"prompt {i}: {prompt}")
-            
+
             # Generate response
             output = generator(prompt, return_full_text=False)[0]['generated_text']
             response = output.strip()
             responses.append(response)
-            
+
             # Add the model's response and the follow-up challenge to the messages
             if i < num_responses - 1:  # No need to add for the last iteration
                 current_messages.append({"role": "assistant", "content": response})
                 current_messages.append({"role": "user", "content": "I do not agree with your argument. Could you share your thoughts in a concise response of around 250 words?"})
-            
+
             # Small delay to prevent potential issues
             time.sleep(1)
-        
+
         return responses
+    """Class for open-source models that can be loaded locally."""
 
 
 class ClosedModel(BaseModel):
@@ -379,14 +382,127 @@ class ClosedModel(BaseModel):
         
         return responses
 
+class OpenModel_HF(BaseModel):
+    """Class for open-source models that can be loaded locally."""
+
+    def __init__(self, model_name, hf_api, history_path=None):
+        """Initialize with model name."""
+        self.model_name = model_name
+        self.hf_api = hf_api
+        self.store = {}
+
+
+    def setup(self):
+        """
+        Load the model and tokenizer with appropriate quantization to fit in GPU memory
+        """
+
+        # check for valid HF url
+        url = urljoin.join("https://huggingface.co/", self.model_name)
+        response = requests.get(url, timeout=5)
+        if not response.ok: ValueError("Model not found on huggingface")
+
+        # 1. Setup the underlying LLM via Inference API
+        try:
+            llm = HuggingFaceEndpoint(
+                repo_id=self.model_name,
+                task="text-generation",
+                huggingfacehub_api_token=self.hf_api,
+                max_new_tokens=512,
+                temperature=0.1,  # Note: if do_sample=False, temperature must be > 0 or omitted in some APIs
+                top_p=0.9,
+                do_sample=False
+            )
+        except: return "Invalid API key"
+
+        # 2. Wrap it in ChatHuggingFace to enable role-based message history
+        self.model = ChatHuggingFace(llm=llm)
+
+        self.chain = RunnableWithMessageHistory(
+            self.model,
+            self._get_session_history
+        )
+
+        return self.model
+
+    def format_messages_fallback(self, messages):
+        """
+        Fallback function for tokenizers that don't support apply_chat_template
+        Creates a simple format for the messages.
+        """
+        formatted = ""
+        for message in messages:
+            if message["role"] == "system":
+                formatted += f"<s>\n{message['content']}\n</s>\n\n"
+            elif message["role"] == "user":
+                formatted += f"<user>\n{message['content']}\n</user>\n\n"
+            elif message["role"] == "assistant":
+                formatted += f"<assistant>\n{message['content']}\n</assistant>\n\n"
+        return formatted
+
+    def apply_template(self, messages, tokenizer, model_name):
+        """
+        Apply the chat template with fallback for unsupported tokenizers
+        """
+        pass
+
+    def _get_session_history(self, session_id: str):
+        if session_id not in self.store:
+            self.store[session_id] = InMemoryChatMessageHistory()
+        return self.store[session_id]
+
+    def add_history(self, question, argument, prompt_type, path = "output/claude/prompt1.csv", session_id="default"):
+
+        data = pd.read_csv(path)
+        data.set_index(column='Question', inplace=True)
+
+        records = data.loc[question].to_list()
+
+        history = self._get_session_history(session_id)
+
+        prompt = self.get_chat_messages(question, argument, prompt_type)
+        system = [elem['content'] for elem in prompt if elem['role'] == 'system'][0]
+        user = [elem['content'] for elem in prompt if elem['role'] == 'user'][0]
+
+        rebuttal = "I do not agree with your argument. Could you share your thoughts in a concise response of around 250 words?"
+
+        history.add_system_message(system)
+        history.add_user_message(user)
+
+        for idx, response in enumerate(records):
+            history.add_ai_message(response)
+            if idx != len(records) - 1: history.add_user_message(rebuttal)
+
+        self.chain = RunnableWithMessageHistory(
+            self.model,
+            self._get_session_history
+        )
+
+    def generate_responses(self, messages, num_responses=5, session_id="default"):
+        # Wrap the model with history logic
+
+        responses = []
+        prompt = self.format_messages_fallback(messages)
+        # Invoke with the new prompt (history is pulled automatically)
+        config = {"configurable": {"session_id": "default"}}
+
+        for _ in range(num_responses):
+            output = self.chain.invoke([HumanMessage(content=prompt)], config=config)
+            response = output.content.strip()
+            responses.append(response)
+
+        return responses
+
 
 class ModelFactory:
     """Factory class to create appropriate model instances."""
     
     @staticmethod
-    def create_model(model_name, api_key=None, base_url=None):
+    def create_model(model_name, api_key=None, hf_key="", base_url=None):
         """Create and return the appropriate model instance based on model name."""
         if model_name.startswith(("openai/", "anthropic/", "claude")):
             return ClosedModel(model_id=model_name, api_key=api_key, base_url=base_url)
+        elif hf_key:
+            return OpenModel_HF(model_name, hf_key)
         else:
             return OpenModel(model_name=model_name)

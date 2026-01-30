@@ -483,10 +483,12 @@ class OpenModel_HF(BaseModel):
 
         responses = []
         prompt = self.format_messages_fallback(messages)
+        rebuttal = "I do not agree with your argument. Could you share your thoughts in a concise response of around 250 words?"
         # Invoke with the new prompt (history is pulled automatically)
         config = {"configurable": {"session_id": "default"}}
 
-        for _ in range(num_responses):
+        for idx in range(num_responses):
+            if idx: prompt = rebuttal
             output = self.chain.invoke([HumanMessage(content=prompt)], config=config)
             response = output.content.strip()
             responses.append(response)

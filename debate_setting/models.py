@@ -455,7 +455,7 @@ class OpenModel_HF(BaseModel):
     def add_history(self, question, argument, prompt_type, path = "output/claude/prompt1.csv", session_id="default"):
 
         data = pd.read_csv(path)
-        data.set_index(column='Question', inplace=True)
+        data.set_index('Question', inplace=True)
 
         records = data.loc[question].to_list()
 
@@ -467,7 +467,7 @@ class OpenModel_HF(BaseModel):
 
         rebuttal = "I do not agree with your argument. Could you share your thoughts in a concise response of around 250 words?"
 
-        history.add_system_message(system)
+        history.add_message(SystemMessage(content=system))
         history.add_user_message(user)
 
         for idx, response in enumerate(records):

@@ -398,9 +398,10 @@ class OpenModel_HF(BaseModel):
         """
 
         # check for valid HF url
-        url = urljoin.join("https://huggingface.co/", self.model_name)
+        url = urljoin("https://huggingface.co/", self.model_name)
         response = requests.get(url, timeout=5)
         if not response.ok: ValueError("Model not found on huggingface")
+
 
         # 1. Setup the underlying LLM via Inference API
         try:
@@ -416,7 +417,7 @@ class OpenModel_HF(BaseModel):
         except: return "Invalid API key"
 
         # 2. Wrap it in ChatHuggingFace to enable role-based message history
-        self.model = ChatHuggingFace(llm=llm)
+        self.model = ChatHuggingFace(llm=llm, huggingfacehub_api_token=self.hf_api)
 
         self.chain = RunnableWithMessageHistory(
             self.model,
@@ -486,12 +487,19 @@ class OpenModel_HF(BaseModel):
         rebuttal = "I do not agree with your argument. Could you share your thoughts in a concise response of around 250 words?"
         # Invoke with the new prompt (history is pulled automatically)
         config = {"configurable": {"session_id": "default"}}
+        history = self._get_session_history("default")
+
 
         for idx in range(num_responses):
-            if idx: prompt = rebuttal
-            output = self.chain.invoke([HumanMessage(content=prompt)], config=config)
+            #prompt argument and premise only if no history
+            if not len(history): user_msg = prompt
+            else: user_msg = rebuttal
+
+            output = self.chain.invoke([HumanMessage(content=user_msg)], config=config)
             response = output.content.strip()
             responses.append(response)
+            print(user_msg)
+            print(response)
 
         return responses
 

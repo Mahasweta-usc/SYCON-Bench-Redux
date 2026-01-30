@@ -70,6 +70,9 @@ def run_benchmark(model, questions, arguments, batch_size=4, num_responses=5, hi
                     messages = model.get_chat_messages(question, argument, prompt_type)
                     responses = model.generate_responses(messages, num_responses=num_responses)
 
+                # reset history for every question (only when using chat message chains)
+                try: model.clear_history()
+                except: pass
                 results[prompt_file][question] = responses
             
             # Save batch results

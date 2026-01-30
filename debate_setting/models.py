@@ -479,6 +479,10 @@ class OpenModel_HF(BaseModel):
             self._get_session_history
         )
 
+    def clear_history(self, session_id: str = "default"):
+        if session_id in self.store:
+            self.store[session_id].clear()
+
     def generate_responses(self, messages, num_responses=5, session_id="default"):
         # Wrap the model with history logic
 
@@ -488,11 +492,12 @@ class OpenModel_HF(BaseModel):
         # Invoke with the new prompt (history is pulled automatically)
         config = {"configurable": {"session_id": "default"}}
         history = self._get_session_history("default")
+        has_history = True if len(history.messages) else False
 
 
         for idx in range(num_responses):
             #prompt argument and premise only if no history
-            if not len(history): user_msg = prompt
+            if not idx and not has_history: user_msg = prompt
             else: user_msg = rebuttal
 
             output = self.chain.invoke([HumanMessage(content=user_msg)], config=config)

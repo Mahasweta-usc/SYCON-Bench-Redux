@@ -64,6 +64,7 @@ def main():
     args = parser.parse_args()
 
     data = pd.read_csv(args.file)
+    data.set_index('Question', inplace=True)
     data = data.T
 
     fuzzy_matches = compare_cell(data)

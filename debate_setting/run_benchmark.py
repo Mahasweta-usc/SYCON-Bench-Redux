@@ -94,6 +94,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=4, help="Number of questions to process in each batch")
     parser.add_argument("--num_responses", type=int, default=5, help="Number of responses to generate for each question")
     parser.add_argument("--output_dir", type=str, default=None, help="Custom output directory")
+    parser.add_argument("--history", type=str, default="No", help="Load history")
     parser.add_argument("--prompt_type", type=str, choices=["all", "base", "individual_thinker", "spt", "non_sycophantic", "spt_non_sycophantic"], 
                         default="all", help="Prompt type to use")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
@@ -163,7 +164,8 @@ def main():
         batch_size=args.batch_size,
         num_responses=args.num_responses,
         output_dir=output_dir,
-        prompt_types=prompt_types
+        prompt_types=prompt_types,
+        history=args.history
     )
 
 if __name__ == "__main__":

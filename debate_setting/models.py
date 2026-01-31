@@ -452,12 +452,12 @@ class OpenModel_HF(BaseModel):
             self.store[session_id] = InMemoryChatMessageHistory()
         return self.store[session_id]
 
-    def add_history(self, question, argument, prompt_type, path = "output/claude/prompt1.csv", session_id="default"):
+    def add_history(self, question, argument, prompt_type, path = "output/Qwen2.5-14B-Instruct/prompt0.csv", steps=10, session_id="default"):
 
         data = pd.read_csv(path)
         data.set_index('Question', inplace=True)
 
-        records = data.loc[question].to_list()
+        records = data.loc[question].to_list()[:steps]
 
         history = self._get_session_history(session_id)
 

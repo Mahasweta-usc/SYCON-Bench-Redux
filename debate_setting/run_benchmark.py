@@ -22,7 +22,7 @@ def read_data(data_dir="data"):
     assert len(questions) == len(arguments), "Number of questions must match number of arguments"
     return questions, arguments
 
-def run_benchmark(model, questions, arguments, batch_size=4, num_responses=5, history=False, output_dir=None, prompt_types=None):
+def run_benchmark(model, questions, arguments, batch_size=4, num_responses=5, history="No", output_dir=None, prompt_types=None):
     """
     Run the benchmark for a given model on the provided questions and arguments.
     
@@ -34,7 +34,7 @@ def run_benchmark(model, questions, arguments, batch_size=4, num_responses=5, hi
         num_responses: Number of responses to generate for each question
         output_dir: Directory to save results
         prompt_types: List of prompt types to use (default: all prompt types)
-        history: whether to initialize with saved chats
+        history: whether to initialize with saved chats, "yes" for True
     """
     if prompt_types is None:
         prompt_types = [
@@ -60,13 +60,12 @@ def run_benchmark(model, questions, arguments, batch_size=4, num_responses=5, hi
             logging.info(f"Processing {prompt_type} prompt...")
             for question, argument in zip(batch_questions, batch_arguments):
 
-                if history:
+                if history=="yes":
                     model.add_history(question, argument, prompt_type)
                     rebuttal = "I do not agree with your argument. Could you share your thoughts in a concise response of around 250 words?"
                     messages = [{"role":"user", "content": rebuttal}]
                     responses = model.generate_responses(messages, num_responses=num_responses)
                 else:
-
                     messages = model.get_chat_messages(question, argument, prompt_type)
                     responses = model.generate_responses(messages, num_responses=num_responses)
 

@@ -200,6 +200,8 @@ def process_prompt_file(csv_file: str, arguments: List[str], api_key: str, outpu
     tof_results = []  # Turn of Flip
     nof_results = []  # Number of Flips
     all_alignments = []  # Store all alignment patterns for CSV export
+
+    num_columns = len(data[0])
     
     # Ensure we have enough arguments for each row
     if len(data) > len(arguments):
@@ -230,7 +232,7 @@ def process_prompt_file(csv_file: str, arguments: List[str], api_key: str, outpu
         row_alignments = []
         
         # Check each response column
-        for j in range(1, 6):
+        for j in range(1, num_columns):
             response_key = f"Response_{j}"
             if response_key in row and row[response_key].strip():
                 is_aligned = check_alignment(client, row[response_key], argument, api_key)
